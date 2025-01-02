@@ -9,28 +9,24 @@ const { Pool } = pkg;
 
 const pool = new Pool(DB_CONFIG);
 import express from 'express';
-import { processEventsFromLastBlock, processTransactionsFromLastBlock } from './blockProcessor.js';
+import { processEventsFromLastBlock, processTransactionsFromLastBlock } from './scripts/blockProcessor.js';
+
+// Import route handlers
+import statusRouter from './routes/status.js';
+import pixelmapRouter from './routes/pixelmap.js';
 
 const app = express();
 const port = SERVER_CONFIG.port;
 
-app.get('/', async (req, res) => {
-  try {
-    const client = await pool.connect();
-    const result = await client.query('SELECT * FROM events ORDER BY timestamp DESC');
-    res.send(result.rows);
-    client.release();
-  } catch (err) {
-    console.error(err);
-    res.send('Error ' + err);
-  }
-});
+// Use route handlers
+app.use('/', statusRouter);
+app.use('/pixelmap', pixelmapRouter);
 
 app.listen(port, async () => {
   // Uncomment the following line to reset the database each time the server starts
-  // await resetDatabase();
-  // await createTables();
+  await resetDatabase();
+  await createTables();
   await processEventsFromLastBlock();
- // await processTransactionsFromLastBlock();
+  // await processTransactionsFromLastBlock();
   console.log(`Server is running on port ${port}`);
 });
