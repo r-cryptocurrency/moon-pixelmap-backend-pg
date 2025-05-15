@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { Network, Alchemy } from 'alchemy-sdk';
 dotenv.config();
 
 export const DB_CONFIG = {
@@ -11,6 +12,11 @@ export const DB_CONFIG = {
 
 export const SERVER_CONFIG = {
     port: process.env.PORT || 3000,
+};
+
+export const alchemySettings = {
+  apiKey: "ULCwRICmgqI30Iu15lq_9cvryqQ-IwDV", // Replace with your Alchemy API Key.
+  network: Network.ARBNOVA_MAINNET, // Replace with your network.
 };
 
 export const arbitrumNova = {
@@ -45,26 +51,6 @@ export const CONTRACT_CONFIG = {
           internalType: "string",
           name: "symbol",
           type: "string",
-        },
-        {
-          internalType: "address",
-          name: "_tokenAddress",
-          type: "address",
-        },
-        {
-          internalType: "address",
-          name: "_burnAddress",
-          type: "address",
-        },
-        {
-          internalType: "uint256",
-          name: "_costForBuy",
-          type: "uint256",
-        },
-        {
-          internalType: "uint256",
-          name: "_costForUpdate",
-          type: "uint256",
         },
       ],
       stateMutability: "nonpayable",
