@@ -91,12 +91,27 @@ async function createTables() {
       );
     `;
 
+    const createUserNameHistoryTableQuery = `
+      CREATE TABLE IF NOT EXISTS user_name_history (
+        id SERIAL PRIMARY KEY,
+        user_address TEXT NOT NULL, -- Ethereum address, matches users.address
+        user_name TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        transaction_hash TEXT,
+        block_number INTEGER
+        -- Consider adding: FOREIGN KEY (user_address) REFERENCES users(address) ON DELETE CASCADE
+        -- However, if a user entry in 'users' is somehow deleted, this FK would delete history.
+        -- For now, keeping it without strict FK to preserve history even if users table changes.
+      );
+    `;
+
     await client.query(createEventsTableQuery);
     await client.query(createPixelBlocksTableQuery);
     await client.query(createPixelBlockOwnersTableQuery);
     await client.query(createPixelBlockUriHistoryTableQuery);
     await client.query(createTransactionsTableQuery);
     await client.query(createUsersTableQuery); // Added users table creation
+    await client.query(createUserNameHistoryTableQuery); // Added user_name_history table creation
 
     // Create trigger function to update the updated_at column
     const createTriggerFunctionQuery = `
@@ -145,6 +160,7 @@ async function resetDatabase() {
     await client.query('DROP TABLE IF EXISTS events CASCADE');
     await client.query('DROP TABLE IF EXISTS transactions CASCADE');
     await client.query('DROP TABLE IF EXISTS users CASCADE'); // Added users table drop
+    await client.query('DROP TABLE IF EXISTS user_name_history CASCADE'); // Added user_name_history table drop
     client.release();
     logger.info('Database reset successfully');
   } catch (err) {

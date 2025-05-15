@@ -173,11 +173,20 @@ async function handleNamedEvent(dbClient, parentLogger, ethersInstance, user, na
       updated_at = EXCLUDED.updated_at;
   `;
 
+  const insertUserNameHistoryQuery = `
+    INSERT INTO user_name_history (user_address, user_name, timestamp, transaction_hash, block_number)
+    VALUES ($1, $2, to_timestamp($3), $4, $5);
+  `;
+
   try {
     await dbClient.query(upsertUserQuery, [user, name, timestamp]);
     logger.debug(`Upserted user: address=${user}, name='${name}'`);
+
+    await dbClient.query(insertUserNameHistoryQuery, [user, name, timestamp, transactionHash, blockNumber]);
+    logger.debug(`Inserted user name history: address=${user}, name='${name}'`);
+
   } catch (err) {
-    logger.error(`Error upserting user (address=${user}, name='${name}'): ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
+    logger.error(`Error processing Named event for user (address=${user}, name='${name}'): ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
     throw err; // Rethrow to ensure transaction rollback
   }
 }
@@ -221,8 +230,31 @@ export async function processEventLog(eventLogFromEthers, eventTimestamp, dbClie
       const { previousOwner, newOwner } = args;
       await handleOwnershipTransferredEvent(dbClient, logger, ethersInstance, previousOwner, newOwner, eventTimestamp, transactionHash, blockNumber);
     } else if (eventName === 'Named') { // Added handler for Named event
-      const { user, name } = args;
-      await handleNamedEvent(dbClient, logger, ethersInstance, user, name, eventTimestamp, transactionHash, blockNumber);
+      const eventArgs = eventLogFromEthers.args;
+      const user = eventArgs[0]; // First argument from ABI is 'user' (address)
+      const nameArg = eventArgs[1]; // Second argument from ABI is 'name' (string, indexed)
+
+      let nameToStore;
+
+      if (typeof nameArg === 'string') {
+        // This would typically be for non-indexed strings or very short indexed ones (uncommon)
+        nameToStore = nameArg;
+      } else if (nameArg && typeof nameArg === 'object' && typeof nameArg.hash === 'string') {
+        // 'name' is an indexed string, and we received an object with its hash.
+        nameToStore = nameArg.hash; // Storing the hash as the name is not ideal but all we have from event.
+        logger.warn(`Storing Keccak-256 hash for indexed string 'name' for user ${user}. Original name: [Not directly available from event topics]. Hash: ${nameToStore}. Tx: ${transactionHash}`);
+      } else {
+        logger.warn(`Unexpected format or missing 'name' argument in Named event for user ${user}. Value: ${JSON.stringify(nameArg)}. Storing name as null. Tx: ${transactionHash}`);
+        nameToStore = null; // Default to null if name cannot be determined
+      }
+
+      // Validate user address before proceeding
+      if (!user || typeof user !== 'string' || !user.startsWith('0x') || user.length !== 42) {
+        logger.error(`Invalid or undefined user address in Named event. Address received: '${user}'. Tx: ${transactionHash}. Skipping event.`);
+        return; // Skip processing this event to prevent DB errors
+      }
+
+      await handleNamedEvent(dbClient, logger, ethersInstance, user, nameToStore, eventTimestamp, transactionHash, blockNumber);
     } else {
       logger.info(`Unhandled event type: ${eventName}`);
     }
