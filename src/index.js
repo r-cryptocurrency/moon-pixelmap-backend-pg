@@ -12,15 +12,21 @@ import pixelmapRouter from './routes/pixelmap.js';
 import pixelsRouter from './routes/pixels.js';
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 4321; // Use port 4321 to match frontend config
 
-// CORS setup
+// CORS setup - allow all origins in development
 app.use(cors({
-  origin: ['http://localhost:5173'],
+  origin: '*', // Allow all origins in development
   methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true,
+  credentials: false, // Changed to false as we're using "*" for origin
   exposedHeaders: ['Content-Type', 'Content-Length']
 }));
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  logger.error('Unhandled error:', { error: err.message, stack: err.stack });
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 app.use(express.json());
 

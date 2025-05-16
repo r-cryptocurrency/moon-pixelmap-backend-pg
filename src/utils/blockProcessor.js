@@ -98,14 +98,23 @@ async function processEventsFromLastBlock() {
             throw new Error(`logIndex is undefined for event in tx ${transactionHash} at block ${blockNumber}`);
           }
 
-          logger.debug(`Event: ${eventName}, Block: ${blockNumber}, TxHash: ${transactionHash}, LogIndex: ${logIndex}, Args: ${JSON.stringify(args)}, Timestamp: ${timestamp}`);
+          // Safely serialize event arguments to avoid deferred ABI decoding errors
+          let argsString;
+          try {
+            argsString = JSON.stringify(Array.isArray(args) ? args.map(a => a.toString()) : {});
+          } catch (e) {
+            // Ensure the fallback is valid JSON by stringifying it.
+            argsString = JSON.stringify('[Unable to serialize args]');
+          }
+
+          logger.debug(`Event: ${eventName}, Block: ${blockNumber}, TxHash: ${transactionHash}, LogIndex: ${logIndex}, Args: ${argsString}, Timestamp: ${timestamp}`);
 
           const insertEventQuery = `
             INSERT INTO events (block_number, transaction_hash, event_type, args, timestamp, log_index)
             VALUES ($1, $2, $3, $4, to_timestamp($5), $6)
             ON CONFLICT (transaction_hash, log_index) DO NOTHING; 
           `;
-          await client.query(insertEventQuery, [blockNumber, transactionHash, eventName, JSON.stringify(args), timestamp, logIndex]);
+          await client.query(insertEventQuery, [blockNumber, transactionHash, eventName, argsString, timestamp, logIndex]);
 
           await processEventLog(event, timestamp, client, contract, logger, ethers);
         }
@@ -115,7 +124,15 @@ async function processEventsFromLastBlock() {
         if (client) {
           await client.query('ROLLBACK');
         }
-        logger.error(`Error processing batch ${startBlock}-${endBlock}. Transaction rolled back.`, { error: batchError.message, stack: batchError.stack, eventBeingProcessed: events.length > 0 ? events[0] : 'N/A' });
+        // Safely summarize the first event for error context without triggering ABI decoding
+        const firstEvent = events.length > 0 ? events[0] : null;
+        const eventMeta = firstEvent
+          ? { transactionHash: firstEvent.transactionHash, eventName: firstEvent.event, blockNumber: firstEvent.blockNumber, logIndex: firstEvent.logIndex }
+          : 'N/A';
+        logger.error(
+          `Error processing batch ${startBlock}-${endBlock}. Transaction rolled back.`,
+          { error: batchError.message, stack: batchError.stack, eventBeingProcessed: eventMeta }
+        );
       } finally {
         if (client) {
           client.release();

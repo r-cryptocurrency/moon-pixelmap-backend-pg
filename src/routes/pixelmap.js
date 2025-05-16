@@ -19,6 +19,8 @@ router.get('/', async (req, res) => {
       res.set('Content-Type', 'image/png');
       res.set('Cache-Control', 'public, max-age=3600');
       res.set('Access-Control-Allow-Origin', '*');
+      res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type');
       res.send(imageBuffer);
     } else {
       logger.error('Failed to generate or retrieve image buffer for /api/pixelmap');
