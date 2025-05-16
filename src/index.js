@@ -10,6 +10,7 @@ import logger from './utils/logger.js'; // Import shared logger
 import statusRouter from './routes/status.js';
 import pixelmapRouter from './routes/pixelmap.js';
 import pixelsRouter from './routes/pixels.js';
+import usersRouter from './routes/users.js';
 
 const app = express();
 const port = process.env.PORT || 4321; // Use port 4321 to match frontend config
@@ -30,10 +31,15 @@ app.use((err, req, res, next) => {
 
 app.use(express.json());
 
+// Import the new pixels-update route
+import pixelsUpdateRouter from './routes/pixels-update.js';
+
 // Route handlers with correct paths
 app.use('/api/status', statusRouter);
 app.use('/api/pixelmap', pixelmapRouter);
 app.use('/api/pixels', pixelsRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/pixels-update', pixelsUpdateRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

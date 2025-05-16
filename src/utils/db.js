@@ -27,6 +27,19 @@ async function createTables() {
         UNIQUE (transaction_hash, log_index) -- Added UNIQUE constraint
       );
     `;
+    
+    const createUsersTableQuery = `
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        address TEXT UNIQUE NOT NULL,
+        user_name TEXT,
+        ens_name TEXT,
+        first_connected TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_connected TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
 
     const createPixelBlocksTableQuery = `
       CREATE TABLE IF NOT EXISTS pixel_blocks (
@@ -81,15 +94,7 @@ async function createTables() {
       );
     `;
 
-    const createUsersTableQuery = `
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        address TEXT UNIQUE NOT NULL, -- Ethereum address
-        user_name TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
+    // We already defined createUsersTableQuery above, so we'll skip the duplicate definition
 
     const createUserNameHistoryTableQuery = `
       CREATE TABLE IF NOT EXISTS user_name_history (
