@@ -23,7 +23,7 @@ async function handleBuyEvent(dbClient, contract, parentLogger, ethersInstance, 
   try {
     const tokenId = calculateTokenId(x, y);
     tokenUri = await contract.tokenURI(tokenId);
-    logger.info(`Fetched tokenURI for tokenId ${tokenId} (x:${x},y:${y}): ${tokenUri}`);
+    // logger.info(`Fetched tokenURI for tokenId ${tokenId} (x:${x},y:${y}): ${tokenUri}`);
   } catch (uriError) {
     logger.error(`Error fetching tokenURI for x=${x}, y=${y}: ${uriError.message}`, { stack: uriError.stack, transactionHash, blockNumber });
     // Fallback to empty string if URI fetch fails
@@ -40,7 +40,7 @@ async function handleBuyEvent(dbClient, contract, parentLogger, ethersInstance, 
   `;
   try {
     await dbClient.query(insertPixelBlockQuery, [x, y, buyer, tokenUri, timestamp]);
-    logger.debug(`Upserted pixel block: x=${x}, y=${y}, owner=${buyer}, uri=${tokenUri}`);
+    // logger.debug(`Upserted pixel block: x=${x}, y=${y}, owner=${buyer}, uri=${tokenUri}`);
   } catch (err) {
     logger.error(`Error upserting pixel block: x=${x}, y=${y}: ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
     throw err; // Rethrow to ensure transaction rollback
@@ -52,7 +52,7 @@ async function handleBuyEvent(dbClient, contract, parentLogger, ethersInstance, 
   `;
   try {
     await dbClient.query(insertPixelBlockOwnerQuery, [x, y, buyer, timestamp, transactionHash, blockNumber]);
-    logger.debug(`Inserted pixel block owner history: x=${x}, y=${y}, Owner: ${buyer}`);
+    // logger.debug(`Inserted pixel block owner history: x=${x}, y=${y}, Owner: ${buyer}`);
   } catch (err) {
     logger.error(`Error inserting pixel block owner history: x=${x}, y=${y}, Owner: ${buyer}: ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
     throw err; // Rethrow to ensure transaction rollback
@@ -63,7 +63,7 @@ async function handleTransferEvent(dbClient, contract, parentLogger, ethersInsta
   const logger = parentLogger.child({ function: 'handleTransferEvent' });
   const tokenId = ethersInstance.BigNumber.from(tokenIdBigNum).toNumber();
   const { x, y } = convertTokenIdToXY(tokenId);
-  logger.info(`Handling Transfer event: tokenId=${tokenId} (x=${x}, y=${y}), from=${from}, to=${to}, txHash=${transactionHash}`);
+  // logger.info(`Handling Transfer event: tokenId=${tokenId} (x=${x}, y=${y}), from=${from}, to=${to}, txHash=${transactionHash}`);
 
   if (from.toLowerCase() === ethersInstance.constants.AddressZero.toLowerCase()) { // MINT case
     logger.info(`Mint detected for tokenId ${tokenId} (x:${x}, y:${y}). Ensuring pixel block exists.`);
@@ -72,7 +72,7 @@ async function handleTransferEvent(dbClient, contract, parentLogger, ethersInsta
       // It's possible tokenURI is set in the same transaction but after the Transfer event.
       // The Buy event handler might update it later if this call gets a stale/empty URI.
       tokenUri = await contract.tokenURI(tokenId);
-      logger.info(`Fetched tokenURI for minted token ${tokenId} (x:${x},y:${y}): ${tokenUri}`);
+      // logger.info(`Fetched tokenURI for minted token ${tokenId} (x:${x},y:${y}): ${tokenUri}`);
     } catch (uriError) {
       logger.error(`Error fetching tokenURI for minted token ${tokenId} (x:${x}, y:${y}): ${uriError.message}`, { stack: uriError.stack, transactionHash, blockNumber });
       // Fallback to empty string if URI fetch fails. The Buy event might populate it later.
@@ -120,7 +120,7 @@ async function handleTransferEvent(dbClient, contract, parentLogger, ethersInsta
   `;
   try {
     await dbClient.query(insertPixelBlockOwnerQuery, [x, y, to, timestamp, transactionHash, blockNumber]);
-    logger.debug(`Inserted pixel block owner history: x=${x}, y=${y}, Owner: ${to}, Type: ${from.toLowerCase() === ethersInstance.constants.AddressZero.toLowerCase() ? 'mint' : 'transfer'}`);
+    // logger.debug(`Inserted pixel block owner history: x=${x}, y=${y}, Owner: ${to}, Type: ${from.toLowerCase() === ethersInstance.constants.AddressZero.toLowerCase() ? 'mint' : 'transfer'}`);
   } catch (err) {
     logger.error(`Error inserting pixel block owner history: x=${x}, y=${y}, Owner: ${to}: ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
     throw err; // Rethrow to ensure transaction rollback
@@ -129,7 +129,7 @@ async function handleTransferEvent(dbClient, contract, parentLogger, ethersInsta
 
 async function handleUpdateEvent(dbClient, parentLogger, ethersInstance, updater, x, y, uri, timestamp, transactionHash, blockNumber) {
   const logger = parentLogger.child({ function: 'handleUpdateEvent' });
-  logger.info(`Handling Update event: x=${x}, y=${y}, uri=${uri}, updater=${updater}, txHash=${transactionHash}`);
+  // logger.info(`Handling Update event: x=${x}, y=${y}, uri=${uri}, updater=${updater}, txHash=${transactionHash}`);
   
   const updatePixelBlockUriQuery = `
     UPDATE pixel_blocks
@@ -139,7 +139,7 @@ async function handleUpdateEvent(dbClient, parentLogger, ethersInstance, updater
   try {
     const result = await dbClient.query(updatePixelBlockUriQuery, [uri, x, y, timestamp, updater]);
     if (result.rowCount > 0) {
-        logger.debug(`Updated pixel block URI: x=${x}, y=${y}, New URI: ${uri}`);
+        // logger.debug(`Updated pixel block URI: x=${x}, y=${y}, New URI: ${uri}`);
     } else {
         logger.warn(`No pixel_block found to update URI for x=${x}, y=${y} by owner ${updater}, or owner mismatch. Contract should prevent unauthorized updates.`, { transactionHash, blockNumber });
     }
@@ -154,7 +154,7 @@ async function handleUpdateEvent(dbClient, parentLogger, ethersInstance, updater
   `;
   try {
     await dbClient.query(insertPixelBlockUriHistoryQuery, [x, y, uri, updater, timestamp, transactionHash, blockNumber]);
-    logger.debug(`Inserted pixel block URI history: x=${x}, y=${y}, URI: ${uri}, Owner: ${updater}`);
+    // logger.debug(`Inserted pixel block URI history: x=${x}, y=${y}, URI: ${uri}, Owner: ${updater}`);
   } catch (err) {
     logger.error(`Error inserting pixel block URI history: x=${x}, y=${y}, URI: ${uri}, Owner: ${updater}: ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
     throw err; // Rethrow to ensure transaction rollback
@@ -163,7 +163,7 @@ async function handleUpdateEvent(dbClient, parentLogger, ethersInstance, updater
 
 async function handleNamedEvent(dbClient, parentLogger, ethersInstance, user, name, timestamp, transactionHash, blockNumber) {
   const logger = parentLogger.child({ function: 'handleNamedEvent' });
-  logger.info(`Handling Named event: user=${user}, name='${name}', txHash=${transactionHash}, blockNumber=${blockNumber}, timestamp=${timestamp}`);
+  // logger.info(`Handling Named event: user=${user}, name='${name}', txHash=${transactionHash}, blockNumber=${blockNumber}, timestamp=${timestamp}`);
   
   const upsertUserQuery = `
     INSERT INTO users (address, user_name, updated_at, created_at)
@@ -180,10 +180,10 @@ async function handleNamedEvent(dbClient, parentLogger, ethersInstance, user, na
 
   try {
     await dbClient.query(upsertUserQuery, [user, name, timestamp]);
-    logger.debug(`Upserted user: address=${user}, name='${name}'`);
+    // logger.debug(`Upserted user: address=${user}, name='${name}'`);
 
     await dbClient.query(insertUserNameHistoryQuery, [user, name, timestamp, transactionHash, blockNumber]);
-    logger.debug(`Inserted user name history: address=${user}, name='${name}'`);
+    // logger.debug(`Inserted user name history: address=${user}, name='${name}'`);
 
   } catch (err) {
     logger.error(`Error processing Named event for user (address=${user}, name='${name}'): ${err.message}`, { stack: err.stack, transactionHash, blockNumber });
@@ -193,7 +193,7 @@ async function handleNamedEvent(dbClient, parentLogger, ethersInstance, user, na
 
 async function handleOwnershipTransferredEvent(dbClient, parentLogger, ethersInstance, previousOwner, newOwner, timestamp, transactionHash, blockNumber) {
   const logger = parentLogger.child({ function: 'handleOwnershipTransferredEvent' });
-  logger.info(`Handling OwnershipTransferred event (contract ownership): previousOwner=${previousOwner}, newOwner=${newOwner}, txHash=${transactionHash}`);
+  // logger.info(`Handling OwnershipTransferred event (contract ownership): previousOwner=${previousOwner}, newOwner=${newOwner}, txHash=${transactionHash}`);
   // This event relates to the contract's ownable pattern, not pixel ownership.
   // For now, logging is sufficient. If needed, this could write to a dedicated table.
 }

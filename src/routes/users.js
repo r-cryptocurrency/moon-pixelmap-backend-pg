@@ -60,7 +60,7 @@ router.get('/:address', async (req, res) => {
     // Query user data
     const query = `
       SELECT u.*, 
-             (SELECT COUNT(*) FROM pixels WHERE owner = u.address) AS owned_pixels
+             (SELECT COUNT(*) FROM pixel_blocks WHERE current_owner = u.address) AS owned_pixels
       FROM users u
       WHERE u.address = $1
     `;
