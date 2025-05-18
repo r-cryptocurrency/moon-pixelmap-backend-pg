@@ -50,27 +50,52 @@ router.post('/', async (req, res) => {
 // GET /api/users/:address - Get user data
 router.get('/:address', async (req, res) => {
   const { address } = req.params;
-  
+
   // Validate address
   if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return res.status(400).json({ error: 'Invalid Ethereum address' });
   }
-  
+
   try {
-    // Query user data
-    const query = `
-      SELECT u.*, 
-             (SELECT COUNT(*) FROM pixel_blocks WHERE current_owner = u.address) AS owned_pixels
-      FROM users u
-      WHERE u.address = $1
+    // Query 1: Get owned pixels count
+    const pixelCountQuery = `
+      SELECT COUNT(*) AS count
+      FROM pixel_blocks
+      WHERE current_owner = $1
     `;
-    const result = await pool.query(query, [address]);
-    
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'User not found' });
+    const pixelCountResult = await pool.query(pixelCountQuery, [address]);
+    const owned_pixels = parseInt(pixelCountResult.rows[0].count, 10);
+
+    // Query 2: Get user details
+    const userQuery = `
+      SELECT id, address, ens_name, first_connected, last_connected
+      FROM users
+      WHERE address = $1
+    `;
+    const userResult = await pool.query(userQuery, [address]);
+
+    if (userResult.rowCount > 0) {
+      // User found, combine with owned_pixels
+      const userData = { ...userResult.rows[0], owned_pixels };
+      res.status(200).json(userData);
+    } else {
+      // User not found in users table
+      if (owned_pixels > 0) {
+        // User has pixels but no record in users table
+        // Return a minimal user object with address and owned_pixels
+        res.status(200).json({
+          id: null, // No ID as user is not in the users table
+          address: address,
+          ens_name: null,
+          first_connected: null,
+          last_connected: null,
+          owned_pixels: owned_pixels,
+        });
+      } else {
+        // User not found and owns no pixels
+        return res.status(404).json({ error: 'User not found and owns no pixels' });
+      }
     }
-    
-    res.status(200).json(result.rows[0]);
   } catch (error) {
     logger.error('Error fetching user data:', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Database error while fetching user data' });
