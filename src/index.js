@@ -2,10 +2,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 import { createTables, resetDatabase, pool } from './utils/db.js';
 import express from 'express';
+import http from 'http';
 import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
 import { processEventsFromLastBlock, processTransactionsFromLastBlock } from './utils/blockProcessor.js';
 import logger from './utils/logger.js'; // Import shared logger
+import chatServer from './services/chatServer.js';
 
 // Import route handlers
 import statusRouter from './routes/status.js';
@@ -91,7 +93,13 @@ async function testDbConnection() {
   }
 }
 
-app.listen(port, async () => {
+// Create HTTP server to attach WebSocket
+const server = http.createServer(app);
+
+// Initialize WebSocket chat server
+chatServer.initialize(server);
+
+server.listen(port, async () => {
   logger.info(`Attempting to start server on port ${port}...`);
   const dbConnected = await testDbConnection();
   if (!dbConnected) {
@@ -99,17 +107,11 @@ app.listen(port, async () => {
     process.exit(1);
   }
   try {
-    // logger.info('Running startup sequence: resetDatabase and createTables...');
-    // await resetDatabase(); // Typically not run on every start in production
-    // await createTables();  // Typically not run on every start if migrations are handled otherwise
-    // logger.info('Startup sequence: Database setup complete.');
-    // clearImageCache(); // Ensure clearImageCache is defined or imported if used
-
     logger.info('Starting event processing...');
-    await processEventsFromLastBlock(); // This can take time, consider running as a background task or service
-    // await processTransactionsFromLastBlock(); // Consider if this needs to run on startup or periodically
+    await processEventsFromLastBlock();
 
     logger.info(`Server running at http://localhost:${port}`);
+    logger.info(`WebSocket chat available at ws://localhost:${port}/ws/chat`);
   } catch (err) {
     logger.error('Startup error during event processing or server setup:', { error: err.message, stack: err.stack });
     process.exit(1);
