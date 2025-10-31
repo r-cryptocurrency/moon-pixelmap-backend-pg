@@ -1,17 +1,14 @@
 import express from 'express';
 import { pool } from '../utils/db.js';
 import logger from '../utils/logger.js';
+import { validateAddressInBody, validateAddressInParams } from '../utils/validation.js';
 
 const router = express.Router();
 
 // POST /api/users - Store user connection data
-router.post('/', async (req, res) => {
-  const { address, ensName, lastConnected } = req.body;
-  
-  // Validate input data
-  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return res.status(400).json({ error: 'Invalid Ethereum address' });
-  }
+router.post('/', validateAddressInBody, async (req, res) => {
+  const { address } = req.validatedBody || req.body;
+  const { ensName, lastConnected } = req.body;
 
   try {
     // Check if user already exists by address
@@ -48,13 +45,8 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/users/:address - Get user data
-router.get('/:address', async (req, res) => {
-  const { address } = req.params;
-
-  // Validate address
-  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return res.status(400).json({ error: 'Invalid Ethereum address' });
-  }
+router.get('/:address', validateAddressInParams, async (req, res) => {
+  const { address } = req.validatedParams || req.params;
 
   try {
     // Query 1: Get owned pixels count

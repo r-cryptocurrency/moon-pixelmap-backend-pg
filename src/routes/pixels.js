@@ -1,22 +1,10 @@
 import { Router } from 'express'
 import { pool } from '../utils/db.js'
 import { createChildLogger } from '../utils/logger.js'; // Import shared logger
+import { validateCoords } from '../utils/validation.js'; // Import centralized validation
 
 const logger = createChildLogger('pixelsRoute'); // Use shared logger
 const router = Router()
-const GRID_TILES = 100
-
-// Middleware to validate coordinates
-const validateCoords = (req, res, next) => {
-  const x = Math.floor(parseInt(req.params.x))
-  const y = Math.floor(parseInt(req.params.y))
-  
-  if (isNaN(x) || isNaN(y) || x < 0 || x >= GRID_TILES || y < 0 || y >= GRID_TILES) {
-    return res.status(400).json({ error: 'Invalid coordinates' })
-  }
-  req.validatedCoords = { x, y }
-  next()
-}
 
 // GET /api/pixels - Retrieve all pixel block data (owner, URI)
 router.get('/', async (req, res) => {

@@ -27,6 +27,7 @@
     "dotenv": "^16.0.3",
     "ethers": "5.7.2",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.2.0",
     "lru-cache": "^11.0.2",
     "pg": "^8.13.1",
     "winston": "^3.17.0"

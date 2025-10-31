@@ -45,7 +45,8 @@ async function processEventsFromLastBlock() {
     const currentBlock = await provider.getBlockNumber();
     // logger.info(`Last processed block: ${lastBlock}, Current block: ${currentBlock}`);
     
-    const batchSize = parseInt(process.env.EVENT_BATCH_SIZE || '100', 10);
+    // Alchemy free tier only allows 10 block range for eth_getLogs
+    const batchSize = parseInt(process.env.EVENT_BATCH_SIZE || '10', 10);
 
     if (lastBlock >= currentBlock) {
       // logger.info('No new blocks to process.');
