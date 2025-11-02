@@ -1,19 +1,63 @@
-# MOONPLACE PIXEL MAP BACKEND (POSTGRES)
+# MOONPLACE PIXEL MAP BACKEND (PostgreSQL + WebSocket)
+
+## Current Status (as of October 31, 2025)
+
+✅ **Working Features:**
+- Express.js REST API with PostgreSQL database
+- Blockchain event monitoring (Arbitrum Nova via Alchemy)
+- Real-time WebSocket chat server
+- Pixel map image generation and caching
+- Security hardening (SQL injection prevention, rate limiting, input validation)
+- Batch pixel updates with ownership verification
+- Event processing and data synchronization
+- Comprehensive logging system
+
+✅ **Recently Implemented (Oct 31, 2025):**
+- **Real-Time Chat System:**
+  - WebSocket server on `/ws/chat`
+  - Ephemeral message storage (last 50 messages in memory)
+  - Rate limiting (3 messages per 5 seconds per IP)
+  - Message validation and sanitization
+  - User count broadcasting
+  - Anonymous and wallet-based messaging
+- **Security Enhancements:**
+  - SQL injection prevention with parameterized queries
+  - Input validation middleware (`validateCoords`, `validateAddressInBody`, `validateImageInBody`)
+  - Rate limiting (300 req/15min general, 20 req/15min writes)
+  - Address format validation (Ethereum 0x[40 hex])
+  - Coordinate validation (0-99 range)
+- **Batch Pixel Updates:**
+  - Update multiple pixels in a single transaction
+  - Individual image per pixel (automatic splitting)
+  - Ownership validation for all selected pixels
+  - Transaction rollback on failure
+- **Performance Optimizations:**
+  - Increased rate limits for development (300 vs 100)
+  - Optimized image processing
+  - Efficient database queries
+
+⚠️ **Known Issues:**
+- Large log files (combined.log grows quickly)
+- Some npm audit vulnerabilities (non-critical)
+- No WebSocket authentication yet
+- Chat history not persistent (in-memory only)
 
 ## 1. Overview
 
-The MOONPLACE Pixel Map Backend is a Node.js application built with Express.js and PostgreSQL. It serves as the backend for the MOONPLACE pixel map project. Its primary responsibilities include:
+The MOONPLACE Pixel Map Backend is a Node.js application built with Express.js, PostgreSQL, and WebSocket. It serves as the backend for the MOONPLACE pixel map project. Its primary responsibilities include:
 
 *   **Blockchain Event Monitoring**: Continuously scans the Arbitrum Nova blockchain (via Alchemy) for events emitted by the deployed `PixelMap.sol` smart contract.
 *   **Data Persistence**: Stores processed event data, pixel block states (current owner, URI), ownership history, URI update history, and user names into a PostgreSQL database.
 *   **Image Generation**: Periodically fetches pixel data from the database, retrieves individual pixel images (from URIs, including base64 encoded JSON data URIs), and generates a composite PNG image of the entire 100x100 pixel map.
+*   **Real-Time Chat**: WebSocket server providing ephemeral chat with rate limiting and message history.
 *   **API Service**: Exposes RESTful API endpoints to:
-    *   Serve the generated pixel map image.
-    *   Provide detailed JSON data for all minted pixel blocks.
-    *   Provide data for individual pixel blocks.
-    *   Report the application's synchronization status.
+    *   Serve the generated pixel map image
+    *   Provide detailed JSON data for all minted pixel blocks
+    *   Provide data for individual pixel blocks
+    *   Handle pixel updates (single and batch)
+    *   Report the application's synchronization status
 
-The backend is designed to ensure data consistency between the blockchain state and the local database, providing a reliable data source for the frontend application.
+The backend is designed to ensure data consistency between the blockchain state and the local database, providing a reliable and secure data source for the frontend application.
 
 ## 2. Setup
 
@@ -24,14 +68,21 @@ The backend is designed to ensure data consistency between the blockchain state 
     *   Copy the `example.env` file (if one exists) to a new file named `.env`.
     *   Update the `.env` file with your PostgreSQL connection details (host, port, database name, user, password) and your Alchemy API key (`ALCHEMY_API_KEY`).
     ```env
+    # Database Configuration
     DB_HOST=your_db_host
     DB_PORT=5432
     DB_NAME=your_db_name
     DB_USER=your_db_user
     DB_PASSWORD=your_db_password
+    
+    # Alchemy API
     ALCHEMY_API_KEY=your_alchemy_api_key
-    PORT=3001 # Optional: Port for the backend server
-    LOG_LEVEL=info # Optional: Logging level (e.g., debug, info, warn, error)
+    
+    # Server Configuration
+    PORT=4321 # Backend server port
+    
+    # Logging
+    LOG_LEVEL=info # Optional: Logging level (debug, info, warn, error)
     ```
 3.  **Install Dependencies**:
     ```bash
@@ -182,21 +233,45 @@ moon-pixelmap-backend-pg/
 *   **`pixels.js` (`/api/pixels`)**:
     *   `GET /`: Returns a JSON array of all pixel blocks from the `pixel_blocks` table (x, y, URI, current owner, timestamp) where `current_owner` is not null.
     *   `GET /:x/:y`: Returns JSON data for a specific pixel block. **Protected with coordinate validation (0-99 range).**
-*   **`pixels-update.js` (`/api/pixels-update`)**:
-    *   `POST /`: Updates a pixel block's image. **Protected with:**
-        - Input validation middleware (coordinates, address, image size)
-        - Rate limiting (20 requests per 15 minutes)
+*   **`pixels-update.js` (`/api/pixels-update`)** - **Write Rate Limited (20/15min)**:
+    *   `POST /`: Batch update multiple pixels. **Protected with:**
+        - Input validation middleware (coordinates, address, image per pixel)
+        - Ownership verification for all selected pixels
+        - Transaction rollback on failure
         - Parameterized queries to prevent SQL injection
+    *   `POST /:x/:y`: Update single pixel. **Protected with:**
+        - Coordinate validation (0-99 range)
+        - Address validation (Ethereum format)
+        - Image validation (size limits)
+        - Ownership verification
 *   **`users.js` (`/api/users`)**:
     *   `POST /`: Creates or updates user connection. **Protected with address validation.**
     *   `GET /:address`: Returns user data for a specific address. **Protected with address validation.**
 *   **`status.js` (`/api/status`)**:
     *   `GET /`: Returns a JSON object with the current application status, including the last processed block number and the timestamp of the last successful image generation.
 
+### `src/services/chatServer.js`
+*   **WebSocket Chat Server** (path: `/ws/chat`):
+    *   Handles WebSocket connections for real-time chat
+    *   Features:
+        - Ephemeral message storage (last 50 messages in memory)
+        - Message broadcasting to all connected clients
+        - Rate limiting (3 messages per 5 seconds per IP)
+        - Message validation and sanitization (500 char limit)
+        - User count broadcasting
+        - Support for anonymous and wallet-based messaging
+        - Connection/disconnection logging
+    *   Message Types:
+        - `history`: Sent to new clients with last 50 messages
+        - `message`: Broadcast when new message received
+        - `userCount`: Broadcast when user connects/disconnects
+        - `error`: Sent to client on validation failure or rate limit
+
 ### `src/utils/validation.js`
 *   **Input validation middleware** to prevent injection attacks:
     *   `validateCoords`: Validates x,y coordinates are integers 0-99
-    *   `validateAddressInBody`: Validates Ethereum address format in request body
+    *   `validateAddressInBody`: Validates Ethereum address format (0x[40 hex chars])
+    *   `validateImageInBody`: Validates base64 image data and size limits
     *   `validateAddressInParams`: Validates Ethereum address format in URL params
     *   `validateImageInBody`: Validates base64 image data and size limits (200KB max)
 
@@ -223,39 +298,106 @@ The database schema is defined and managed in `src/utils/db.js`. Key tables incl
 
 Triggers are in place to automatically update the `updated_at` fields in `pixel_blocks` and `users` tables whenever a row is updated.
 
-# MOONPLACE PIXEL MAP BACKEND (POSTGRES)
-
-## Current Status (as of October 30, 2025)
-✅ **Working Features:**
-- Blockchain event monitoring and processing (10-block batches for Alchemy free tier)
-- Database persistence with full history tracking
-- Image generation from on-chain URIs
-- Secure REST API endpoints with input validation
-- Winston logging system with rate limit violation tracking
-- Rate limiting on all API routes
-- SQL injection protection via parameterized queries
-
-✅ **Recently Fixed:**
-- SQL injection vulnerability patched with validation middleware
-- Rate limiting implemented (100 req/15min general, 20 req/15min for writes)
-- Input validation middleware for coordinates and addresses
-- Alchemy API batch size reduced to 10 blocks (free tier limit)
-
-⚠️ **Known Issues:**
-- Named events only store hash, not actual name
-- No API authentication (public endpoints)
-- CORS allows all origins (needs restriction for production)
-- Image processing validation could be enhanced
+# MOONPLACE PIXEL MAP BACKEND (PostgreSQL + WebSocket)
 
 ## TODO Lists
 
-### 🔴 Immediate (Security Critical):
-1. ✅ ~~**Fix SQL injection** in `routes/pixels-update.js`~~ - COMPLETED (using parameterized queries + validation)
-2. ✅ ~~**Add rate limiting**~~ - COMPLETED (express-rate-limit: 100/15min general, 20/15min writes)
-3. **Implement API authentication** (API keys or JWT)
-4. **Restrict CORS** origins for production (currently allows all)
-5. ✅ ~~**Add input validation** middleware~~ - COMPLETED (`src/utils/validation.js`)
-6. **Fix Named event handling** - consider alternative storage for actual names
+### 🔴 Immediate (High Priority):
+1. ✅ ~~**Fix SQL injection**~~ - COMPLETED (parameterized queries + validation middleware)
+2. ✅ ~~**Add rate limiting**~~ - COMPLETED (300/15min general, 20/15min writes, 3msg/5sec chat)
+3. ✅ ~~**Add input validation**~~ - COMPLETED (`src/utils/validation.js`)
+4. ✅ ~~**Implement real-time chat**~~ - COMPLETED (WebSocket server with ephemeral history)
+5. ✅ ~~**Add batch pixel updates**~~ - COMPLETED (transaction-based multi-pixel updates)
+6. **Implement API authentication** (API keys or JWT for sensitive endpoints)
+7. **Restrict CORS** origins for production (currently allows all)
+8. **Add log rotation** (combined.log growing too large)
+9. **WebSocket authentication** (verify wallet signatures for chat)
+
+### 🟡 Near Term (1-2 weeks):
+1. **Persistent chat history**:
+   - Store messages in database
+   - Configurable retention period
+   - Message search/filtering
+2. **Chat moderation tools**:
+   - Admin commands
+   - Ban/mute functionality
+   - Message deletion
+3. **Enhanced validation**:
+   - Image format validation
+   - Content type checking
+   - File size limits per pixel count
+4. **Performance optimization**:
+   - Database query optimization
+   - Connection pooling tuning
+   - Image generation caching improvements
+5. **Monitoring and alerts**:
+   - Health check endpoint
+   - Error rate monitoring
+   - Database connection monitoring
+6. **Fix Named event handling** - store actual names, not just hash
+
+### 🟢 Long Term (1+ month):
+1. **API versioning** (v1, v2 routes)
+2. **GraphQL API** as alternative to REST
+3. **Horizontal scaling** preparation:
+   - Redis for session/chat state
+   - Load balancer compatibility
+   - Stateless architecture
+4. **Advanced analytics**:
+   - Pixel update frequency
+   - User activity metrics
+   - Popular areas tracking
+5. **Backup and recovery**:
+   - Automated database backups
+   - Disaster recovery procedures
+6. **CI/CD pipeline** setup
+
+## 6. Security Features
+
+### Input Validation
+- **Coordinate validation**: Ensures x,y are integers in range 0-99
+- **Address validation**: Validates Ethereum address format (0x[40 hex])
+- **Image validation**: Checks base64 format and size limits
+- All validation failures return proper HTTP 400 errors
+
+### Rate Limiting
+- **General endpoints**: 300 requests per 15 minutes per IP
+- **Write operations**: 20 requests per 15 minutes per IP
+- **Chat messages**: 3 messages per 5 seconds per IP
+- Rate limit headers included in responses
+- Violations logged to Winston logger
+
+### SQL Injection Prevention
+- All database queries use parameterized statements
+- No string concatenation for SQL queries
+- Input sanitization before database operations
+
+### CORS Configuration
+- Currently allows all origins (development mode)
+- Should be restricted for production deployment
+- Credentials not allowed by default
+
+## 7. Rate Limit Configuration
+
+Edit `src/index.js` to adjust rate limits:
+
+```javascript
+// General rate limiter
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300, // requests per window
+});
+
+// Write operations rate limiter
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // requests per window
+});
+
+// Chat rate limiter (in chatServer.js)
+const RATE_LIMIT_WINDOW = 5000; // 5 seconds
+const RATE_LIMIT_MAX = 3; // messages per window
+```
 7. **Add helmet middleware** for security headers
 8. **Address npm audit vulnerabilities** (13 found: 2 low, 1 moderate, 8 high, 2 critical)
 
