@@ -18,6 +18,10 @@ import usersRouter from './routes/users.js';
 const app = express();
 const port = process.env.PORT || 4321; // Use port 4321 to match frontend config
 
+// Trust proxy - required when behind nginx/reverse proxy
+// This allows express-rate-limit to correctly identify users by IP
+app.set('trust proxy', 1);
+
 // Rate limiting configuration
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
