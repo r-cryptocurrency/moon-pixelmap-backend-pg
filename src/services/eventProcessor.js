@@ -200,39 +200,123 @@ async function handleOwnershipTransferredEvent(dbClient, parentLogger, ethersIns
 
 export async function processEventLog(eventLogFromEthers, eventTimestamp, dbClient, contract, parentLogger, ethersInstance) {
   const logger = parentLogger.child({ function: 'processEventLog' }); // Create child logger for this function
-  const { blockNumber, transactionHash, event: eventName, args, logIndex } = eventLogFromEthers; // Added logIndex for completeness if needed here
+  const { blockNumber, transactionHash, event: eventName, logIndex, data, topics } = eventLogFromEthers; // Added data and topics for raw decoding
+  
+  // Helper function to safely access event args
+  // ethers.js uses deferred decoding which can throw when accessing certain indices
+  const safeGetArg = (args, index) => {
+    try {
+      return args[index];
+    } catch (err) {
+      logger.warn(`Failed to access args[${index}] - deferred ABI decoding error`, { 
+        error: err.message, 
+        transactionHash, 
+        blockNumber 
+      });
+      return null;
+    }
+  };
 
-  logger.debug(`Dispatching event: ${eventName}, Block: ${blockNumber}, TxHash: ${transactionHash}, LogIndex: ${logIndex}, Args: ${JSON.stringify(args)}, Timestamp: ${eventTimestamp}`);
+  // Helper function to safely serialize args for logging
+  const safeSerializeArgs = (args) => {
+    try {
+      if (!args) return 'null';
+      const result = [];
+      // Only try to access up to 10 args to avoid infinite loops
+      for (let i = 0; i < 10; i++) {
+        try {
+          if (args[i] === undefined) break;
+          result.push(String(args[i]));
+        } catch (e) {
+          result.push(`[decoding error at ${i}]`);
+          break; // Stop trying after first error
+        }
+      }
+      return JSON.stringify(result);
+    } catch (e) {
+      return '[serialization error]';
+    }
+  };
+
+  logger.debug(`Dispatching event: ${eventName}, Block: ${blockNumber}, TxHash: ${transactionHash}, LogIndex: ${logIndex}, Args: ${safeSerializeArgs(eventLogFromEthers.args)}, Timestamp: ${eventTimestamp}`);
 
   try {
     if (eventName === 'Buy') {
-      const { buyer, x, y } = args;
+      const buyer = safeGetArg(eventLogFromEthers.args, 'buyer') || safeGetArg(eventLogFromEthers.args, 0);
+      const x = safeGetArg(eventLogFromEthers.args, 'x') || safeGetArg(eventLogFromEthers.args, 1);
+      const y = safeGetArg(eventLogFromEthers.args, 'y') || safeGetArg(eventLogFromEthers.args, 2);
       const xCoord = ethersInstance.BigNumber.from(x).toNumber();
       const yCoord = ethersInstance.BigNumber.from(y).toNumber();
       await handleBuyEvent(dbClient, contract, logger, ethersInstance, buyer, xCoord, yCoord, eventTimestamp, transactionHash, blockNumber);
     } else if (eventName === 'BatchBuy') {
-      const { buyer, x: xArray, y: yArray } = args;
+      const buyer = safeGetArg(eventLogFromEthers.args, 'buyer') || safeGetArg(eventLogFromEthers.args, 0);
+      const xArray = safeGetArg(eventLogFromEthers.args, 'x') || safeGetArg(eventLogFromEthers.args, 1);
+      const yArray = safeGetArg(eventLogFromEthers.args, 'y') || safeGetArg(eventLogFromEthers.args, 2);
       for (let i = 0; i < xArray.length; i++) {
         const xCoord = ethersInstance.BigNumber.from(xArray[i]).toNumber();
         const yCoord = ethersInstance.BigNumber.from(yArray[i]).toNumber();
         await handleBuyEvent(dbClient, contract, logger, ethersInstance, buyer, xCoord, yCoord, eventTimestamp, transactionHash, blockNumber);
       }
     } else if (eventName === 'Transfer') {
-      const { from, to, tokenId } = args;
+      const from = safeGetArg(eventLogFromEthers.args, 'from') || safeGetArg(eventLogFromEthers.args, 0);
+      const to = safeGetArg(eventLogFromEthers.args, 'to') || safeGetArg(eventLogFromEthers.args, 1);
+      const tokenId = safeGetArg(eventLogFromEthers.args, 'tokenId') || safeGetArg(eventLogFromEthers.args, 2);
       await handleTransferEvent(dbClient, contract, logger, ethersInstance, from, to, tokenId, eventTimestamp, transactionHash, blockNumber);
     } else if (eventName === 'Update') {
-      const updater = args[0]; 
-      const xCoord = ethersInstance.BigNumber.from(args[1]).toNumber(); 
-      const yCoord = ethersInstance.BigNumber.from(args[2]).toNumber(); 
-      const uri = args[3]; 
+      // Update event has: owner (indexed), x, y, tokenURI
+      // The tokenURI is a string and may cause deferred decoding errors
+      let updater, xCoord, yCoord, uri;
+      
+      try {
+        // Try named access first
+        updater = eventLogFromEthers.args.owner;
+        const x = eventLogFromEthers.args.x;
+        const y = eventLogFromEthers.args.y;
+        uri = eventLogFromEthers.args.tokenURI;
+        xCoord = ethersInstance.BigNumber.from(x).toNumber();
+        yCoord = ethersInstance.BigNumber.from(y).toNumber();
+      } catch (abiError) {
+        logger.warn(`ABI decoding failed for Update event, attempting raw decode`, { 
+          error: abiError.message, 
+          transactionHash,
+          blockNumber
+        });
+        
+        // Try raw decoding from topics and data
+        // Update event: event Update(address indexed owner, uint256 x, uint256 y, string tokenURI)
+        // topics[0] = event signature hash
+        // topics[1] = owner (indexed)
+        // data = abi.encode(x, y, tokenURI)
+        try {
+          updater = ethersInstance.utils.getAddress('0x' + topics[1].slice(26)); // Extract address from topic
+          const decoded = ethersInstance.utils.defaultAbiCoder.decode(
+            ['uint256', 'uint256', 'string'],
+            data
+          );
+          xCoord = decoded[0].toNumber();
+          yCoord = decoded[1].toNumber();
+          uri = decoded[2];
+          logger.info(`Successfully decoded Update event using raw log data`, { xCoord, yCoord, updater, uriPreview: uri?.substring(0, 50) });
+        } catch (rawDecodeError) {
+          logger.error(`Failed to decode Update event even with raw decoding`, { 
+            error: rawDecodeError.message, 
+            transactionHash,
+            topics: topics?.map(t => t?.substring(0, 20) + '...'),
+            dataPreview: data?.substring(0, 100)
+          });
+          // Skip this event but don't throw - allow other events to continue
+          return;
+        }
+      }
+      
       await handleUpdateEvent(dbClient, logger, ethersInstance, updater, xCoord, yCoord, uri, eventTimestamp, transactionHash, blockNumber);
     } else if (eventName === 'OwnershipTransferred') {
-      const { previousOwner, newOwner } = args;
+      const previousOwner = safeGetArg(eventLogFromEthers.args, 'previousOwner') || safeGetArg(eventLogFromEthers.args, 0);
+      const newOwner = safeGetArg(eventLogFromEthers.args, 'newOwner') || safeGetArg(eventLogFromEthers.args, 1);
       await handleOwnershipTransferredEvent(dbClient, logger, ethersInstance, previousOwner, newOwner, eventTimestamp, transactionHash, blockNumber);
     } else if (eventName === 'Named') { // Added handler for Named event
-      const eventArgs = eventLogFromEthers.args;
-      const user = eventArgs[0]; // First argument from ABI is 'user' (address)
-      const nameArg = eventArgs[1]; // Second argument from ABI is 'name' (string, indexed)
+      const user = safeGetArg(eventLogFromEthers.args, 'user') || safeGetArg(eventLogFromEthers.args, 0);
+      const nameArg = safeGetArg(eventLogFromEthers.args, 'name') || safeGetArg(eventLogFromEthers.args, 1);
 
       let nameToStore;
 
@@ -259,7 +343,7 @@ export async function processEventLog(eventLogFromEthers, eventTimestamp, dbClie
       logger.info(`Unhandled event type: ${eventName}`);
     }
   } catch (error) {
-    logger.error(`Error during event processing for ${eventName} (tx: ${transactionHash}): ${error.message}`, { stack: error.stack, eventArgs: JSON.stringify(args), transactionHash, blockNumber });
+    logger.error(`Error during event processing for ${eventName} (tx: ${transactionHash}): ${error.message}`, { stack: error.stack, transactionHash, blockNumber });
     throw error; // Rethrow to ensure transaction in blockProcessor is rolled back for this batch
   }
 }

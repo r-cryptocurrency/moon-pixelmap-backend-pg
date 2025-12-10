@@ -15,8 +15,8 @@ export const SERVER_CONFIG = {
 };
 
 export const alchemySettings = {
-  apiKey: "ULCwRICmgqI30Iu15lq_9cvryqQ-IwDV", // Replace with your Alchemy API Key.
-  network: Network.ARBNOVA_MAINNET, // Replace with your network.
+  apiKey: process.env.ALCHEMY_API_KEY || '', // Set via environment variable
+  network: Network.ARBNOVA_MAINNET,
 };
 
 export const arbitrumNova = {
@@ -28,13 +28,21 @@ export const arbitrumNova = {
     symbol: "ETH",
     name: "Arbitrum Nova ETH",
   },
-  rpcUrls: ["https://nova.arbitrum.io/rpc"],
+  rpcUrls: [
+    // Primary RPC URLs - will use ALCHEMY_URL from env if set
+    process.env.ALCHEMY_URL,
+    // Free public fallback endpoints
+    "https://nova.arbitrum.io/rpc",
+    "https://arbitrum-nova.drpc.org",
+    "https://arbitrum-nova.public.blastapi.io",
+    "https://rpc.ankr.com/arbitrumnova"
+  ].filter(Boolean), // Remove undefined entries
   blockExplorers: "https://nova.arbiscan.io",
 };
 
 export const CONTRACT_CONFIG = {
-  provider: "https://nova.arbitrum.io/rpc",
-  alchemyUrl: "https://shape-mainnet.g.alchemy.com/v2/ULCwRICmgqI30Iu15lq_9cvryqQ-IwDV",
+  provider: process.env.ALCHEMY_URL || "https://nova.arbitrum.io/rpc",
+  alchemyUrl: process.env.ALCHEMY_URL || null, // Set via ALCHEMY_URL environment variable
   address: {
     80001: "0x66FF1BcdCD50bB234B7A2102cF0875dfca60E703",
     42170: "0x934095513c1ff89592A4b8490e263da7a6a4CEAc",

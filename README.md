@@ -1,18 +1,36 @@
 # MOONPLACE PIXEL MAP BACKEND (PostgreSQL + WebSocket)
 
-## Current Status (as of October 31, 2025)
+## Current Status (as of December 10, 2025)
 
 ✅ **Working Features:**
 - Express.js REST API with PostgreSQL database
-- Blockchain event monitoring (Arbitrum Nova via Alchemy)
+- Blockchain event monitoring (Arbitrum Nova with automatic RPC failover)
 - Real-time WebSocket chat server
 - Pixel map image generation and caching
 - Security hardening (SQL injection prevention, rate limiting, input validation)
 - Batch pixel updates with ownership verification
-- Event processing and data synchronization
+- Event processing and data synchronization with error recovery
 - Comprehensive logging system
+- Status API with RPC provider information
 
-✅ **Recently Implemented (Oct 31, 2025):**
+✅ **Recently Implemented (Dec 10, 2025):**
+- **Fallback RPC Provider System:**
+  - Automatic provider switching on rate limits or connection errors
+  - 5+ RPC endpoints (Alchemy + 4 free public endpoints)
+  - Exponential backoff with jitter for retries
+  - Provider health detection for rate limits and network errors
+  - Separate `src/utils/rpcProvider.js` module for provider management
+  - Status API shows current RPC endpoint and sync progress
+- **ABI Decoding Error Handling:**
+  - Safe event argument access to prevent deferred decoding errors
+  - Raw log decoder fallback for Update events
+  - Events continue processing even if individual events fail
+- **Configuration Security:**
+  - Removed hardcoded API keys
+  - All sensitive values read from environment variables
+  - Multiple RPC URLs in configuration
+
+✅ **Previously Implemented (Oct 31, 2025):**
 - **Real-Time Chat System:**
   - WebSocket server on `/ws/chat`
   - Ephemeral message storage (last 50 messages in memory)
@@ -65,25 +83,40 @@ The backend is designed to ensure data consistency between the blockchain state 
     *   Ensure you have a PostgreSQL server running.
     *   Create a dedicated database and a user with appropriate permissions.
 2.  **Environment Variables**:
-    *   Copy the `example.env` file (if one exists) to a new file named `.env`.
-    *   Update the `.env` file with your PostgreSQL connection details (host, port, database name, user, password) and your Alchemy API key (`ALCHEMY_API_KEY`).
+    *   Copy the `example.env` file to a new file named `.env`.
+    *   Update the `.env` file with your PostgreSQL credentials and RPC configuration:
     ```env
     # Database Configuration
-    DB_HOST=your_db_host
+    DB_HOST=localhost
     DB_PORT=5432
-    DB_NAME=your_db_name
-    DB_USER=your_db_user
-    DB_PASSWORD=your_db_password
+    DB_NAME=moonplace
+    DB_USER=postgres
+    DB_PASSWORD=your_password_here
     
-    # Alchemy API
-    ALCHEMY_API_KEY=your_alchemy_api_key
+    # RPC Configuration (optional - uses free public RPCs if not set)
+    # Set ALCHEMY_URL if you have an Alchemy account for better performance
+    ALCHEMY_URL=https://arb-nova.g.alchemy.com/v2/your_api_key
+    # Otherwise, the backend automatically uses free public RPC endpoints
     
     # Server Configuration
-    PORT=4321 # Backend server port
+    PORT=3001
+    
+    # Event Processing
+    EVENT_BATCH_SIZE=10  # Lower for rate-limited endpoints, higher for dedicated RPCs
+    ARBITRUM_NOVA_GENESIS_BLOCK=1954820
     
     # Logging
-    LOG_LEVEL=info # Optional: Logging level (debug, info, warn, error)
+    LOG_LEVEL=info
     ```
+    *   **RPC Configuration Details**:
+        *   If `ALCHEMY_URL` is set, it will be used as the primary endpoint
+        *   If not set, the backend automatically uses free public RPC endpoints:
+            - `https://nova.arbitrum.io/rpc` (Official Arbitrum Nova)
+            - `https://arbitrum-nova.drpc.org` (dRPC)
+            - `https://arbitrum-nova.public.blastapi.io` (BlastAPI)
+            - `https://rpc.ankr.com/arbitrumnova` (Ankr)
+        *   The system automatically switches providers on rate limits or connection errors
+        *   `EVENT_BATCH_SIZE`: Use 10 for Alchemy free tier or public RPCs, increase to 50+ for dedicated endpoints
 3.  **Install Dependencies**:
     ```bash
     npm install
@@ -126,12 +159,13 @@ moon-pixelmap-backend-pg/
 │   │   └── resetDb.js        # Script to reset and initialize the database
 │   ├── services/
 │   │   └── eventProcessor.js # Logic for processing specific blockchain events
-│   └── utils/
-│       ├── blockProcessor.js # Scans blockchain for new events
-│       ├── db.js             # Database connection, table creation/reset
-│       ├── imageGenerator.js # Generates the composite pixel map image
-│       ├── imageProcessor.js # (Currently seems unused or legacy)
-│       └── logger.js         # Winston logger configuration
+   └── utils/
+       ├── blockProcessor.js # Scans blockchain for new events
+       ├── db.js             # Database connection, table creation/reset
+       ├── imageGenerator.js # Generates the composite pixel map image
+       ├── imageProcessor.js # (Currently seems unused or legacy)
+       ├── logger.js         # Winston logger configuration
+       └── rpcProvider.js    # RPC provider management with automatic failover
 ├── .env                      # Environment variables (ignored by git)
 ├── example.env               # Example environment file
 ├── package.json              # Project dependencies and scripts
@@ -148,11 +182,14 @@ moon-pixelmap-backend-pg/
 *   Starts the periodic image generation (`startImageGenerationInterval`).
 
 ### `src/config.js`
-*   `DB_CONFIG`: Object containing database connection parameters (read from `.env`).
+*   `DB_CONFIG`: Database connection parameters (read from `.env`).
 *   `SERVER_CONFIG`: Server configuration (e.g., port).
-*   `alchemySettings`: Alchemy API key and network settings.
+*   `alchemySettings`: Alchemy API settings (API key from `ALCHEMY_API_KEY` env var).
+*   `arbitrumNova`: Network configuration including RPC URLs for fallback:
+    *   Primary: `ALCHEMY_URL` environment variable (if set)
+    *   Fallback endpoints: 4 free public RPC URLs
 *   `CONTRACT_CONFIG`:
-    *   `provider`: RPC URL for the blockchain.
+    *   `provider`: Primary RPC URL (uses `ALCHEMY_URL` or falls back to official Nova RPC).
     *   `address`: Deployed smart contract addresses (keyed by network ID).
     *   `abi`: The ABI (Application Binary Interface) of the `PixelMap.sol` smart contract.
 
@@ -169,23 +206,56 @@ moon-pixelmap-backend-pg/
     *   Creates PL/pgSQL trigger functions and triggers to automatically update `updated_at` timestamps on row updates for `pixel_blocks` and `users`.
 *   `resetDatabase()`: Drops all relevant tables (using `CASCADE` to handle foreign key dependencies).
 
+### `src/utils/rpcProvider.js`
+*   **New module for managing RPC provider failover and retry logic**
+*   Key Features:
+    *   Multiple RPC endpoints: Alchemy (primary) + 4 public endpoints (fallback)
+    *   Automatic provider switching on rate limits (HTTP 429) or connection errors
+    *   Exponential backoff with jitter for failed requests
+    *   Provider health detection:
+        - Rate limit errors (429, "too many requests")
+        - Connection errors (ECONNREFUSED, ECONNRESET, ETIMEDOUT)
+        - Service unavailable (502, 503, 504)
+    *   Helper functions:
+        - `getBlockNumber()`: Get current block with retry logic
+        - `getBlock(blockNumber)`: Get block details with failover
+        - `getBlockWithTransactions(blockNumber)`: Get block with tx data
+        - `queryContractEvents(contract, filter, fromBlock, toBlock)`: Query events with retry
+        - `callContractMethod(contract, methodName, ...args)`: Call contract methods with failover
+        - `getProviderStats()`: Get current provider status
+        - `forceProviderSwitch()`: Manually switch to next provider
+*   Configuration:
+    *   `MIN_SWITCH_INTERVAL`: 60 seconds (prevents rapid provider thrashing)
+    *   `MAX_RETRIES`: 3 attempts per provider
+    *   `INITIAL_RETRY_DELAY`: 1 second with exponential backoff up to 30 seconds
+    *   Each failed request adds jitter (±25%) to prevent thundering herd
+
 ### `src/utils/blockProcessor.js`
 *   `getLastProcessedBlock()`: Retrieves the last successfully processed block number from the `events` table or returns a default starting block.
 *   `processEventsFromLastBlock()`:
-    *   Periodically fetches new blocks from the blockchain via Alchemy SDK.
-    *   Retrieves all relevant smart contract events within those blocks (in 10-block batches for Alchemy free tier).
-    *   Fetches timestamps for these blocks.
+    *   Fetches new blocks from the blockchain using the RPC provider system.
+    *   Automatically switches RPC providers on rate limits or connection failures.
+    *   Retrieves all relevant smart contract events within blocks (batched to respect provider limits).
+    *   Fetches block timestamps (with automatic failover to next provider on error).
     *   Processes events in batches, wrapped in database transactions:
         *   Inserts raw event data into the `events` table.
         *   Delegates event-specific logic to `processEventLog()` in `src/services/eventProcessor.js`.
+        *   If an event fails to decode, logs the error but continues processing other events.
     *   Updates the record of the last processed block.
-*   `EVENT_BATCH_SIZE`: Default set to 10 blocks (Alchemy free tier limit, can be increased for paid plans).
+    *   All RPC calls automatically retry with exponential backoff before switching providers.
+*   `EVENT_BATCH_SIZE`: Configurable via env var (default: 10 for rate-limited endpoints, can be 50+ for dedicated RPCs).
 
 ### `src/services/eventProcessor.js`
+*   **Event Processing with Error Recovery**
+    *   Safe argument access to prevent deferred ABI decoding errors
+    *   Raw log decoding fallback for problematic events
+    *   Individual events that fail are skipped (not thrown) to allow batch processing to continue
 *   `convertTokenIdToXY(tokenId)`: Converts a `tokenId` to `{x, y}` coordinates.
 *   `calculateTokenId(x, y)`: Converts `{x, y}` coordinates to a `tokenId`.
 *   `processEventLog(eventLogFromEthers, eventTimestamp, dbClient, contract, logger, ethersInstance)`:
     *   Main dispatcher function that routes event data to specific handler functions based on `eventName`.
+    *   Uses `safeGetArg()` helper to catch deferred ABI decoding errors for each argument access.
+    *   For `Update` events: If normal decoding fails, attempts raw log decoding using `ethers.utils.defaultAbiCoder.decode()` as fallback.
 *   `handleBuyEvent(..., buyer, x, y, ...)`:
     *   Called for `Buy` and `BatchBuy` events.
     *   Fetches `tokenURI` from the contract for the given `x, y`.
@@ -248,7 +318,14 @@ moon-pixelmap-backend-pg/
     *   `POST /`: Creates or updates user connection. **Protected with address validation.**
     *   `GET /:address`: Returns user data for a specific address. **Protected with address validation.**
 *   **`status.js` (`/api/status`)**:
-    *   `GET /`: Returns a JSON object with the current application status, including the last processed block number and the timestamp of the last successful image generation.
+    *   `GET /`: Returns a JSON object with the current application status, including:
+        - Database connection status
+        - Last processed block number from the blockchain
+        - Current RPC provider endpoint being used
+        - RPC endpoint index (e.g., "2/5" meaning 2nd of 5 available)
+        - Current block number on the blockchain
+        - Number of blocks remaining to sync
+        - Service health status
 
 ### `src/services/chatServer.js`
 *   **WebSocket Chat Server** (path: `/ws/chat`):

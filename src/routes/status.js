@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { pool } from '../utils/db.js';
 import { getLastProcessedBlock } from '../utils/blockProcessor.js';
-import { createChildLogger } from '../utils/logger.js'; // Import shared logger
+import { getProviderStats, getBlockNumber } from '../utils/rpcProvider.js';
+import { createChildLogger } from '../utils/logger.js';
 
-const logger = createChildLogger('statusRoute'); // Use shared logger
+const logger = createChildLogger('statusRoute');
 const router = Router();
 
 router.get('/', async (req, res) => {
@@ -29,8 +30,17 @@ router.get('/', async (req, res) => {
       lastProcessedBlock = 'Error fetching';
     }
     
-    // Placeholder for blockchain provider status - in a real scenario, you might ping the provider
-    const blockchainProviderStatus = 'OK'; // Assuming Alchemy/provider is fine if no direct errors recently
+    // Get RPC provider status
+    let rpcStatus = 'OK';
+    let currentBlockNumber = null;
+    const providerStats = getProviderStats();
+    
+    try {
+      currentBlockNumber = await getBlockNumber();
+    } catch (rpcErr) {
+      rpcStatus = 'Error';
+      logger.error('RPC provider failed for status check:', { error: rpcErr.message });
+    }
 
     res.json({
       service: 'moon-pixelmap-backend-pg',
@@ -42,10 +52,15 @@ router.get('/', async (req, res) => {
           lastQueried: lastBlockDB
         },
         blockchainProvider: {
-          status: blockchainProviderStatus // e.g., Alchemy
+          status: rpcStatus,
+          currentEndpoint: providerStats.currentEndpoint,
+          endpointIndex: `${providerStats.currentIndex + 1}/${providerStats.totalEndpoints}`,
+          currentBlockNumber: currentBlockNumber,
+          availableEndpoints: providerStats.totalEndpoints
         },
         eventProcessing: {
-          lastProcessedBlock: lastProcessedBlock
+          lastProcessedBlock: lastProcessedBlock,
+          blocksRemaining: currentBlockNumber ? currentBlockNumber - lastProcessedBlock : 'unknown'
         }
       }
     });

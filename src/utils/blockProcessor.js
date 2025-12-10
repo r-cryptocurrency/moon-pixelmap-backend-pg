@@ -4,14 +4,20 @@ import { CONTRACT_CONFIG } from '../config.js';
 import { ethers } from 'ethers';
 import { pool } from './db.js';
 import { processEventLog } from '../services/eventProcessor.js';
-import { createChildLogger } from './logger.js'; // Import shared logger
+import { createChildLogger } from './logger.js';
+import {
+  getProvider,
+  getBlockNumber,
+  getBlock,
+  queryContractEvents,
+  callContractMethod,
+  getProviderStats
+} from './rpcProvider.js';
 
-const logger = createChildLogger('blockProcessor'); // Use shared logger
+const logger = createChildLogger('blockProcessor');
 
-// Create an Alchemy provider
-const provider = new ethers.providers.JsonRpcProvider(process.env.ALCHEMY_URL);
-
-const contract = new ethers.Contract(CONTRACT_CONFIG.address[42170], CONTRACT_CONFIG.abi, provider);
+// Create contract using the fallback provider system
+const contract = new ethers.Contract(CONTRACT_CONFIG.address[42170], CONTRACT_CONFIG.abi, getProvider());
 
 async function getLastProcessedBlock() {
   let client;
@@ -42,7 +48,12 @@ async function processEventsFromLastBlock() {
       logger.error('Invalid lastBlock received, cannot proceed with event processing.', { lastBlockValue: lastBlock });
       return;
     }
-    const currentBlock = await provider.getBlockNumber();
+    
+    // Log current provider status
+    const providerStats = getProviderStats();
+    logger.debug('Current RPC provider status', providerStats);
+    
+    const currentBlock = await getBlockNumber();
     // logger.info(`Last processed block: ${lastBlock}, Current block: ${currentBlock}`);
     
     // Alchemy free tier only allows 10 block range for eth_getLogs
@@ -59,7 +70,7 @@ async function processEventsFromLastBlock() {
       
       let events = [];
       try {
-        events = await contract.queryFilter({}, startBlock, endBlock);
+        events = await queryContractEvents(contract, {}, startBlock, endBlock);
       } catch (queryError) {
         logger.error(`Failed to query events from block ${startBlock} to ${endBlock}`, { error: queryError.message, stack: queryError.stack });
         continue;
@@ -75,7 +86,7 @@ async function processEventsFromLastBlock() {
       
       for (const bn of uniqueBlockNumbers) {
         try {
-          const block = await provider.getBlock(bn);
+          const block = await getBlock(bn);
           blockTimestamps[bn] = block.timestamp;
         } catch (blockError) {
           logger.error(`Failed to fetch block ${bn}`, { error: blockError.message, stack: blockError.stack });
@@ -159,11 +170,19 @@ async function processTransactionsFromLastBlock() {
       logger.error('Invalid lastBlock received, cannot proceed with transaction processing.', { lastBlockValue: lastBlock });
       return;
     }
-    const currentBlock = await provider.getBlockNumber();
+    const currentBlock = await getBlockNumber();
     // logger.debug(`Transaction processing: Last block (from events): ${lastBlock}, Current block: ${currentBlock}`);
 
     for (let blockNumber = lastBlock + 1; blockNumber <= currentBlock; blockNumber++) {
-      const block = await provider.getBlockWithTransactions(blockNumber);
+      let block;
+      try {
+        const { getBlockWithTransactions: getBlockWithTx } = await import('./rpcProvider.js');
+        block = await getBlockWithTx(blockNumber);
+      } catch (blockError) {
+        logger.warn(`Block ${blockNumber} not found or error fetching it with transactions.`, { error: blockError.message });
+        continue;
+      }
+      
       if (!block) {
         logger.warn(`Block ${blockNumber} not found or error fetching it with transactions.`);
         continue;
