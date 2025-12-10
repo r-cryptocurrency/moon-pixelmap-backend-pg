@@ -111,8 +111,19 @@ server.listen(port, async () => {
     process.exit(1);
   }
   try {
-    logger.info('Starting event processing...');
+    logger.info('Starting initial event processing...');
     await processEventsFromLastBlock();
+
+    // Poll for new blockchain events every 10 seconds (configurable via EVENT_POLL_INTERVAL_MS)
+    const pollInterval = parseInt(process.env.EVENT_POLL_INTERVAL_MS || '10000', 10);
+    logger.info(`Setting up event polling every ${pollInterval}ms`);
+    setInterval(async () => {
+      try {
+        await processEventsFromLastBlock();
+      } catch (pollError) {
+        logger.error('Error during event polling:', { error: pollError.message, stack: pollError.stack });
+      }
+    }, pollInterval);
 
     logger.info(`Server running at http://localhost:${port}`);
     logger.info(`WebSocket chat available at ws://localhost:${port}/ws/chat`);
