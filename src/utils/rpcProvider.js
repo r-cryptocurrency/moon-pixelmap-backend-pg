@@ -6,15 +6,15 @@ import { createChildLogger } from './logger.js';
 const logger = createChildLogger('rpcProvider');
 
 // Arbitrum Nova RPC endpoints - ordered by priority
-// Put your Alchemy/paid endpoints first, free public endpoints as fallback
+// Free public endpoints first, paid endpoints as fallback
 const RPC_ENDPOINTS = [
-  // Alchemy (when available)
-  process.env.ALCHEMY_URL,
-  // Free public endpoints
+  // Free public endpoints (primary)
   'https://nova.arbitrum.io/rpc',
-  'https://arbitrum-nova.drpc.org',
+  'https://arbitrum-nova.drpc.org', 
   'https://arbitrum-nova.public.blastapi.io',
   'https://rpc.ankr.com/arbitrumnova',
+  // Alchemy as fallback (when available)
+  process.env.ALCHEMY_URL,
 ].filter(Boolean); // Remove undefined/null entries
 
 // Provider state
