@@ -42,7 +42,7 @@ async function getLastProcessedBlock() {
 async function processEventsFromLastBlock() {
   let client;
   try {
-    // logger.info('Starting to process events from last block...');
+    logger.info('Starting to process events from last block...');
     const lastBlock = await getLastProcessedBlock();
     if (typeof lastBlock !== 'number' || isNaN(lastBlock)) {
       logger.error('Invalid lastBlock received, cannot proceed with event processing.', { lastBlockValue: lastBlock });
@@ -54,19 +54,19 @@ async function processEventsFromLastBlock() {
     logger.debug('Current RPC provider status', providerStats);
     
     const currentBlock = await getBlockNumber();
-    // logger.info(`Last processed block: ${lastBlock}, Current block: ${currentBlock}`);
+    logger.info(`Last processed block: ${lastBlock}, Current block: ${currentBlock}, gap: ${currentBlock - lastBlock}`);
     
     // Alchemy free tier only allows 10 block range for eth_getLogs
     const batchSize = parseInt(process.env.EVENT_BATCH_SIZE || '10', 10);
 
     if (lastBlock >= currentBlock) {
-      // logger.info('No new blocks to process.');
+      logger.info('No new blocks to process.');
       return;
     }
 
     for (let startBlock = lastBlock + 1; startBlock <= currentBlock; startBlock += batchSize) {
       const endBlock = Math.min(startBlock + batchSize - 1, currentBlock);
-      // logger.info(`Processing events from block ${startBlock} to ${endBlock}`);
+      logger.debug(`Processing events from block ${startBlock} to ${endBlock}`);
       
       let events = [];
       try {
