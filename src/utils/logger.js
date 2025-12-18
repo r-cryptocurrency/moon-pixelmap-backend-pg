@@ -1,5 +1,6 @@
 // filepath: /home/jw/src/moonplace/moon-pixelmap-backend-pg/src/utils/logger.js
 import winston from 'winston';
+import 'winston-daily-rotate-file';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -33,14 +34,40 @@ const logger = winston.createLogger({
   ),
   transports: [
     new winston.transports.Console(),
-    new winston.transports.File({ filename: 'logs/combined.log', level: 'debug' }),
-    new winston.transports.File({ filename: 'logs/errors.log', level: 'error' })
+    new winston.transports.DailyRotateFile({
+      filename: 'logs/combined-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: true,
+      maxSize: '20m',
+      maxFiles: '14d',
+      level: 'debug'
+    }),
+    new winston.transports.DailyRotateFile({
+      filename: 'logs/errors-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: true,
+      maxSize: '20m',
+      maxFiles: '14d',
+      level: 'error'
+    })
   ],
   exceptionHandlers: [
-    new winston.transports.File({ filename: 'logs/exceptions.log' })
+    new winston.transports.DailyRotateFile({
+      filename: 'logs/exceptions-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: true,
+      maxSize: '20m',
+      maxFiles: '14d'
+    })
   ],
   rejectionHandlers: [
-    new winston.transports.File({ filename: 'logs/rejections.log' })
+    new winston.transports.DailyRotateFile({
+      filename: 'logs/rejections-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: true,
+      maxSize: '20m',
+      maxFiles: '14d'
+    })
   ]
 });
 

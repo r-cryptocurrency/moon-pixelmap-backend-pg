@@ -1,6 +1,6 @@
 # MOONPLACE PIXEL MAP BACKEND (PostgreSQL + WebSocket)
 
-## Current Status (as of December 10, 2025)
+## Current Status (as of December 18, 2025)
 
 ✅ **Working Features:**
 - Express.js REST API with PostgreSQL database
@@ -10,10 +10,16 @@
 - Security hardening (SQL injection prevention, rate limiting, input validation)
 - Batch pixel updates with ownership verification
 - Event processing and data synchronization with error recovery
-- Comprehensive logging system
+- Comprehensive logging system with **automatic log rotation**
 - Status API with RPC provider information
 
-✅ **Recently Implemented (Dec 10, 2025):**
+✅ **Recently Implemented (Dec 18, 2025):**
+- **Security & Maintenance Updates:**
+  - Audited and updated all dependencies to resolve critical vulnerabilities.
+  - Implemented **Log Rotation** using `winston-daily-rotate-file` to prevent disk space exhaustion. Logs are now compressed and retained for 14 days.
+  - Added `systemd` service configuration for robust production deployment.
+
+✅ **Previously Implemented (Dec 10, 2025):**
 - **Fallback RPC Provider System:**
   - Automatic provider switching on rate limits or connection errors
   - 5+ RPC endpoints (Alchemy + 4 free public endpoints)
@@ -498,3 +504,46 @@ const RATE_LIMIT_MAX = 3; // messages per window
 5. **Implement IPFS integration** for decentralized storage
 6. **Add notification system** for pixel updates
 7. **Create backup and recovery system**
+
+## 8. Production Deployment with Systemd
+
+We recommend running the application using `systemd` with a dedicated user for better security and process management.
+
+### 1. Create a Dedicated User
+Create a user named `node-moonplace` with no login access:
+```bash
+sudo useradd -r -m -s /bin/false node-moonplace
+```
+
+### 2. Setup Application Code
+Clone or move the repository to the user's home directory:
+```bash
+# Assuming code is currently in /home/jw/src/moonplace
+sudo cp -r /home/jw/src/moonplace /home/node-moonplace/
+sudo chown -R node-moonplace:node-moonplace /home/node-moonplace/moonplace
+```
+
+### 3. Install Dependencies
+Switch to the user (temporarily enabling shell if needed, or use sudo) to install dependencies:
+```bash
+sudo -u node-moonplace bash -c 'cd /home/node-moonplace/moonplace/moon-pixelmap-backend-pg && npm install --production'
+```
+
+### 4. Configure Systemd Service
+Copy the provided service file to the systemd directory:
+```bash
+sudo cp /home/node-moonplace/moonplace/systemd/moon-pixelmap-backend.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+### 5. Start and Enable Service
+```bash
+sudo systemctl start moon-pixelmap-backend
+sudo systemctl enable moon-pixelmap-backend
+```
+
+### 6. View Logs
+View logs using journalctl:
+```bash
+sudo journalctl -u moon-pixelmap-backend -f
+```
